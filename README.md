@@ -1,6 +1,6 @@
 FiveM Company Job
 
-This is a comprehensive logistics company job script for FiveM, based on the ESX framework. It allows players to work as truck drivers, team up in convoys, and generate revenue and items for the company. It also includes advanced interaction features for higher-ranking company members.
+This is a comprehensive company job script for FiveM, based on the ESX framework. It allows players to work as truck drivers, team up in convoys, and generate revenue and items for the company. It also includes advanced interaction features for higher-ranking company members.
 
 🌟 Features
 
