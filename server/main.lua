@@ -101,8 +101,6 @@ function getPriceFromHash(hashKey, jobGrade, type)
     return 0
 end
 
-
--- Coffre d'entreprise
 ESX.RegisterServerCallback('companyjob:getStockItems', function(source, cb, storing)
     local weapons, items
     TriggerEvent('esx_addoninventory:getSharedInventory', storing, function(inventory)
