@@ -3,10 +3,6 @@ TriggerEvent('esx:getSharedObject', function(obj)
     ESX = obj
 end)
 
---
---
---
-
 if Config.MaxInService ~= -1 then
     TriggerEvent('esx_service:activateService', 'companyjob', Config.MaxInService)
 end
@@ -15,15 +11,32 @@ end
 TriggerEvent('esx_phone:registerNumber', 'companyjob', _U('alert_companyjob'), true, true)
 TriggerEvent('esx_society:registerSociety', 'companyjob', 'Company Job', 'society_companyjob', 'society_companyjob', 'society_companyjob', { type = 'public' })
 
+-- Helper function for distance checks (Anti-Exploit)
+local function IsPlayerNearTarget(source, target, maxDist)
+    local sourcePed = GetPlayerPed(source)
+    local targetPed = GetPlayerPed(target)
+    if not DoesEntityExist(sourcePed) or not DoesEntityExist(targetPed) then
+        return false
+    end
+    local sourceCoords = GetEntityCoords(sourcePed)
+    local targetCoords = GetEntityCoords(targetPed)
+    return #(sourceCoords - targetCoords) <= maxDist
+end
 
 -- Garage car
 ESX.RegisterServerCallback('companyjob:storeNearbyVehicle', function(source, cb, nearbyVehicles)
     local xPlayer = ESX.GetPlayerFromId(source)
+    if not xPlayer or xPlayer.job.name ~= 'companyjob' then
+        cb(false)
+        return
+    end
+
     local foundPlate, foundNum
 
     for k, v in ipairs(nearbyVehicles) do
-        local result = MySQL.Sync.fetchAll('SELECT plate FROM owned_vehicles WHERE plate = @plate', {
+        local result = MySQL.Sync.fetchAll('SELECT plate FROM owned_vehicles WHERE plate = @plate AND job = @job', {
             ['@plate'] = v.plate,
+            ['@job'] = 'companyjob'
         })
 
         if result[1] then
@@ -49,12 +62,16 @@ ESX.RegisterServerCallback('companyjob:storeNearbyVehicle', function(source, cb,
     end
 end)
 
-
 ESX.RegisterServerCallback('companyjob:buyJobVehicle', function(source, cb, vehicleProps, type)
     local xPlayer = ESX.GetPlayerFromId(source)
+    if not xPlayer or xPlayer.job.name ~= 'companyjob' or xPlayer.job.grade_name ~= 'boss' then
+        print(('companyjob: %s attempted to buy a job vehicle without permission!'):format(xPlayer and xPlayer.identifier or source))
+        cb(false)
+        return
+    end
+
     local price = getPriceFromHash(vehicleProps.model, xPlayer.job.grade_name, type)
 
-    -- vehicle model not found
     if price <= 0 then
         cb(false)
     else
@@ -79,11 +96,10 @@ ESX.RegisterServerCallback('companyjob:buyJobVehicle', function(source, cb, vehi
     end
 end)
 
-
 function getPriceFromHash(hashKey, jobGrade, type)
     if type == 'car' then
-        local vehicles = Config.AuthorizedVehicles[jobGrade]
-        local shared = Config.AuthorizedVehicles['Shared']
+        local vehicles = Config.AuthorizedVehicles[jobGrade] or {}
+        local shared = Config.AuthorizedVehicles['Shared'] or {}
 
         for _, v in ipairs(vehicles) do
             if GetHashKey(v.model) == hashKey then
@@ -101,7 +117,20 @@ function getPriceFromHash(hashKey, jobGrade, type)
     return 0
 end
 
+-- Company Vault & Depot
 ESX.RegisterServerCallback('companyjob:getStockItems', function(source, cb, storing)
+    local xPlayer = ESX.GetPlayerFromId(source)
+    if not xPlayer or xPlayer.job.name ~= 'companyjob' then
+        cb({ items = {}, weapons = {} })
+        return
+    end
+
+    if storing ~= 'society_companyjob' and storing ~= 'society_companyjob_depot' then
+        print(('companyjob: %s attempted to access invalid storage %s!'):format(xPlayer.identifier, tostring(storing)))
+        cb({ items = {}, weapons = {} })
+        return
+    end
+
     local weapons, items
     TriggerEvent('esx_addoninventory:getSharedInventory', storing, function(inventory)
         items = inventory.items
@@ -115,13 +144,15 @@ ESX.RegisterServerCallback('companyjob:getStockItems', function(source, cb, stor
     })
 end)
 
-
 ESX.RegisterServerCallback('companyjob:getPlayerInventory', function(source, cb)
     local xPlayer = ESX.GetPlayerFromId(source)
-    local items = xPlayer.inventory
+    if not xPlayer then
+        cb({ items = {}, weapons = {} })
+        return
+    end
 
     cb({
-        items = items,
+        items = xPlayer.inventory,
         weapons = xPlayer.getLoadout()
     })
 end)
@@ -130,6 +161,22 @@ RegisterServerEvent('companyjob:getStockItem')
 AddEventHandler('companyjob:getStockItem', function(type, itemName, count, storing)
     local _source = source
     local xPlayer = ESX.GetPlayerFromId(_source)
+
+    if not xPlayer or xPlayer.job.name ~= 'companyjob' then
+        print(('companyjob: %s attempted to take stock item without job!'):format(xPlayer and xPlayer.identifier or _source))
+        return
+    end
+
+    if storing ~= 'society_companyjob' and storing ~= 'society_companyjob_depot' then
+        print(('companyjob: %s attempted to take from invalid storage %s!'):format(xPlayer.identifier, tostring(storing)))
+        return
+    end
+
+    if storing == 'society_companyjob_depot' and xPlayer.job.grade_name == 'recruit' then
+        print(('companyjob: %s (recruit) attempted to access the depot!'):format(xPlayer.identifier))
+        return
+    end
+
     local sourceItem = xPlayer.getInventoryItem(itemName)
 
     if type == 'item_weapon' then
@@ -147,16 +194,16 @@ AddEventHandler('companyjob:getStockItem', function(type, itemName, count, stori
                     break
                 end
             end
-            store.set('weapons', storeWeapons)
-            xPlayer.addWeapon(weaponName, ammo)
+            if weaponName then
+                store.set('weapons', storeWeapons)
+                xPlayer.addWeapon(weaponName, ammo)
+            end
         end)
     elseif type == 'item_standard' then
         TriggerEvent('esx_addoninventory:getSharedInventory', storing, function(inventory)
             local inventoryItem = inventory.getItem(itemName)
 
-            -- is there enough in the society?
-            if count > 0 and inventoryItem.count >= count then
-                -- can the player carry the said amount of x item?
+            if count > 0 and inventoryItem and inventoryItem.count >= count then
                 if sourceItem.limit ~= -1 and (sourceItem.count + count) > sourceItem.limit then
                     TriggerClientEvent('esx:showNotification', _source, _U('quantity_invalid'))
                 else
@@ -171,18 +218,28 @@ AddEventHandler('companyjob:getStockItem', function(type, itemName, count, stori
     end
 end)
 
-
 RegisterServerEvent('companyjob:putStockItems')
 AddEventHandler('companyjob:putStockItems', function(type, itemName, count, storing)
-    local xPlayer = ESX.GetPlayerFromId(source)
+    local _source = source
+    local xPlayer = ESX.GetPlayerFromId(_source)
+
+    if not xPlayer or xPlayer.job.name ~= 'companyjob' then
+        print(('companyjob: %s attempted to put stock item without job!'):format(xPlayer and xPlayer.identifier or _source))
+        return
+    end
+
+    if storing ~= 'society_companyjob' and storing ~= 'society_companyjob_depot' then
+        print(('companyjob: %s attempted to put into invalid storage %s!'):format(xPlayer.identifier, tostring(storing)))
+        return
+    end
+
     local sourceItem = xPlayer.getInventoryItem(itemName)
 
     if type == 'item_standard' then
         TriggerEvent('esx_addoninventory:getSharedInventory', storing, function(inventory)
             local inventoryItem = inventory.getItem(itemName)
 
-            -- does the player have enough of the item?
-            if sourceItem.count >= count and count > 0 then
+            if sourceItem and sourceItem.count >= count and count > 0 then
                 xPlayer.removeInventoryItem(itemName, count)
                 inventory.addItem(itemName, count)
                 TriggerClientEvent('esx:showNotification', xPlayer.source, _U('have_deposited', count, inventoryItem.label))
@@ -191,71 +248,80 @@ AddEventHandler('companyjob:putStockItems', function(type, itemName, count, stor
             end
         end)
     elseif type == 'item_weapon' then
+        if xPlayer.hasWeapon(itemName) then
+            TriggerEvent('esx_datastore:getSharedDataStore', storing, function(store)
+                local storeWeapons = store.get('weapons') or {}
 
-        TriggerEvent('esx_datastore:getSharedDataStore', storing, function(store)
-            local storeWeapons = store.get('weapons') or {}
+                table.insert(storeWeapons, {
+                    name = itemName,
+                    ammo = count
+                })
 
-            table.insert(storeWeapons, {
-                name = itemName,
-                ammo = count
-            })
-
-            store.set('weapons', storeWeapons)
-            xPlayer.removeWeapon(itemName)
-        end)
-
+                store.set('weapons', storeWeapons)
+                xPlayer.removeWeapon(itemName)
+            end)
+        end
     end
 end)
 
-
--- Menu Mobile Mafia
+-- Menu Mobile Mafia (Secured with Job, Grade & Distance Checks)
 RegisterServerEvent('companyjob:handcuff')
 AddEventHandler('companyjob:handcuff', function(target)
-    local xPlayer = ESX.GetPlayerFromId(source)
+    local _source = source
+    local xPlayer = ESX.GetPlayerFromId(_source)
 
-    if xPlayer.job.name == 'companyjob' then
-        TriggerClientEvent('companyjob:handcuff', target)
+    if xPlayer and xPlayer.job.name == 'companyjob' and (xPlayer.job.grade_name == 'underboss' or xPlayer.job.grade_name == 'boss') then
+        if IsPlayerNearTarget(_source, target, 10.0) then
+            TriggerClientEvent('companyjob:handcuff', target)
+        else
+            print(('companyjob: %s attempted to handcuff a player from too far away!'):format(xPlayer.identifier))
+        end
     else
-        print(('companyjob: %s attempted to handcuff a player (not cop)!'):format(xPlayer.identifier))
+        print(('companyjob: %s attempted to handcuff a player without permission!'):format(xPlayer and xPlayer.identifier or _source))
     end
 end)
-
 
 RegisterServerEvent('companyjob:drag')
 AddEventHandler('companyjob:drag', function(target)
-    local xPlayer = ESX.GetPlayerFromId(source)
+    local _source = source
+    local xPlayer = ESX.GetPlayerFromId(_source)
 
-    if xPlayer.job.name == 'companyjob' then
-        TriggerClientEvent('companyjob:drag', target, source)
+    if xPlayer and xPlayer.job.name == 'companyjob' and (xPlayer.job.grade_name == 'underboss' or xPlayer.job.grade_name == 'boss') then
+        if IsPlayerNearTarget(_source, target, 10.0) then
+            TriggerClientEvent('companyjob:drag', target, _source)
+        end
     else
-        print(('companyjob: %s attempted to drag (not cop)!'):format(xPlayer.identifier))
+        print(('companyjob: %s attempted to drag without permission!'):format(xPlayer and xPlayer.identifier or _source))
     end
 end)
-
 
 RegisterServerEvent('companyjob:putInVehicle')
 AddEventHandler('companyjob:putInVehicle', function(target)
-    local xPlayer = ESX.GetPlayerFromId(source)
+    local _source = source
+    local xPlayer = ESX.GetPlayerFromId(_source)
 
-    if xPlayer.job.name == 'companyjob' then
-        TriggerClientEvent('companyjob:putInVehicle', target)
+    if xPlayer and xPlayer.job.name == 'companyjob' and (xPlayer.job.grade_name == 'underboss' or xPlayer.job.grade_name == 'boss') then
+        if IsPlayerNearTarget(_source, target, 10.0) then
+            TriggerClientEvent('companyjob:putInVehicle', target)
+        end
     else
-        print(('companyjob: %s attempted to put in vehicle (not cop)!'):format(xPlayer.identifier))
+        print(('companyjob: %s attempted to put in vehicle without permission!'):format(xPlayer and xPlayer.identifier or _source))
     end
 end)
-
 
 RegisterServerEvent('companyjob:OutVehicle')
 AddEventHandler('companyjob:OutVehicle', function(target)
-    local xPlayer = ESX.GetPlayerFromId(source)
+    local _source = source
+    local xPlayer = ESX.GetPlayerFromId(_source)
 
-    if xPlayer.job.name == 'companyjob' then
-        TriggerClientEvent('companyjob:OutVehicle', target)
+    if xPlayer and xPlayer.job.name == 'companyjob' and (xPlayer.job.grade_name == 'underboss' or xPlayer.job.grade_name == 'boss') then
+        if IsPlayerNearTarget(_source, target, 10.0) then
+            TriggerClientEvent('companyjob:OutVehicle', target)
+        end
     else
-        print(('companyjob: %s attempted to drag out from vehicle (not cop)!'):format(xPlayer.identifier))
+        print(('companyjob: %s attempted to drag out from vehicle without permission!'):format(xPlayer and xPlayer.identifier or _source))
     end
 end)
-
 
 RegisterServerEvent('companyjob:confiscatePlayerItem')
 AddEventHandler('companyjob:confiscatePlayerItem', function(target, itemType, itemName, amount)
@@ -263,8 +329,13 @@ AddEventHandler('companyjob:confiscatePlayerItem', function(target, itemType, it
     local sourceXPlayer = ESX.GetPlayerFromId(_source)
     local targetXPlayer = ESX.GetPlayerFromId(target)
 
-    if sourceXPlayer.job.name ~= 'companyjob' then
-        print(('companyjob: %s attempted to confiscate!'):format(xPlayer.identifier))
+    if not sourceXPlayer or not targetXPlayer or sourceXPlayer.job.name ~= 'companyjob' or (sourceXPlayer.job.grade_name ~= 'underboss' and sourceXPlayer.job.grade_name ~= 'boss') then
+        print(('companyjob: %s attempted to confiscate without permission!'):format(sourceXPlayer and sourceXPlayer.identifier or _source))
+        return
+    end
+
+    if not IsPlayerNearTarget(_source, target, 10.0) then
+        print(('companyjob: %s attempted to confiscate from too far away!'):format(sourceXPlayer.identifier))
         return
     end
 
@@ -272,10 +343,7 @@ AddEventHandler('companyjob:confiscatePlayerItem', function(target, itemType, it
         local targetItem = targetXPlayer.getInventoryItem(itemName)
         local sourceItem = sourceXPlayer.getInventoryItem(itemName)
 
-        -- does the target player have enough in their inventory?
-        if targetItem.count > 0 and targetItem.count <= amount then
-
-            -- can the player carry the said amount of x item?
+        if targetItem and targetItem.count > 0 and targetItem.count >= amount and amount > 0 then
             if sourceItem.limit ~= -1 and (sourceItem.count + amount) > sourceItem.limit then
                 TriggerClientEvent('esx:showNotification', _source, _U('quantity_invalid'))
             else
@@ -289,43 +357,55 @@ AddEventHandler('companyjob:confiscatePlayerItem', function(target, itemType, it
         end
 
     elseif itemType == 'item_account' then
-        targetXPlayer.removeAccountMoney(itemName, amount)
-        sourceXPlayer.addAccountMoney(itemName, amount)
+        local targetAccount = targetXPlayer.getAccount(itemName)
+        if targetAccount and targetAccount.money >= amount and amount > 0 then
+            targetXPlayer.removeAccountMoney(itemName, amount)
+            sourceXPlayer.addAccountMoney(itemName, amount)
 
-        TriggerClientEvent('esx:showNotification', _source, _U('you_confiscated_account', amount, itemName, targetXPlayer.name))
-        TriggerClientEvent('esx:showNotification', target, _U('got_confiscated_account', amount, itemName, sourceXPlayer.name))
+            TriggerClientEvent('esx:showNotification', _source, _U('you_confiscated_account', amount, itemName, targetXPlayer.name))
+            TriggerClientEvent('esx:showNotification', target, _U('got_confiscated_account', amount, itemName, sourceXPlayer.name))
+        end
 
     elseif itemType == 'item_weapon' then
         if amount == nil then
             amount = 0
         end
-        targetXPlayer.removeWeapon(itemName, amount)
-        sourceXPlayer.addWeapon(itemName, amount)
+        if targetXPlayer.hasWeapon(itemName) then
+            targetXPlayer.removeWeapon(itemName, amount)
+            sourceXPlayer.addWeapon(itemName, amount)
 
-        TriggerClientEvent('esx:showNotification', _source, _U('you_confiscated_weapon', ESX.GetWeaponLabel(itemName), targetXPlayer.name, amount))
-        TriggerClientEvent('esx:showNotification', target, _U('got_confiscated_weapon', ESX.GetWeaponLabel(itemName), amount, sourceXPlayer.name))
+            TriggerClientEvent('esx:showNotification', _source, _U('you_confiscated_weapon', ESX.GetWeaponLabel(itemName), targetXPlayer.name, amount))
+            TriggerClientEvent('esx:showNotification', target, _U('got_confiscated_weapon', ESX.GetWeaponLabel(itemName), amount, sourceXPlayer.name))
+        end
     end
 end)
 
-
 ESX.RegisterServerCallback('companyjob:getOtherPlayerData', function(source, cb, target)
+    local xPlayer = ESX.GetPlayerFromId(source)
+    local targetXPlayer = ESX.GetPlayerFromId(target)
+
+    if not xPlayer or not targetXPlayer or xPlayer.job.name ~= 'companyjob' then
+        cb({})
+        return
+    end
+
     if Config.EnableESXIdentity then
-        local xPlayer = ESX.GetPlayerFromId(target)
         local result = MySQL.Sync.fetchAll('SELECT firstname, lastname, sex, dateofbirth, height FROM users WHERE identifier = @identifier', {
-            ['@identifier'] = xPlayer.identifier
+            ['@identifier'] = targetXPlayer.identifier
         })
 
-        local firstname = result[1].firstname
-        local lastname = result[1].lastname
-        local sex = result[1].sex
-        local dob = result[1].dateofbirth
-        local height = result[1].height
+        local firstname = result[1] and result[1].firstname or 'Unknown'
+        local lastname = result[1] and result[1].lastname or 'Unknown'
+        local sex = result[1] and result[1].sex or 'Unknown'
+        local dob = result[1] and result[1].dateofbirth or 'Unknown'
+        local height = result[1] and result[1].height or 'Unknown'
+
         local data = {
             name = GetPlayerName(target),
-            job = xPlayer.job,
-            inventory = xPlayer.inventory,
-            accounts = xPlayer.accounts,
-            weapons = xPlayer.loadout,
+            job = targetXPlayer.job,
+            inventory = targetXPlayer.inventory,
+            accounts = targetXPlayer.accounts,
+            weapons = targetXPlayer.loadout,
             firstname = firstname,
             lastname = lastname,
             sex = sex,
@@ -350,127 +430,168 @@ ESX.RegisterServerCallback('companyjob:getOtherPlayerData', function(source, cb,
     end
 end)
 
-
 RegisterServerEvent('companyjob:message')
 AddEventHandler('companyjob:message', function(target, msg)
-    TriggerClientEvent('esx:showNotification', target, msg)
-end)
-
-
--- Menu convois
-RegisterServerEvent('companyjob:registerConvoi')
-AddEventHandler('companyjob:registerConvoi', function(identifier, idConvoi)
-    local xPlayer = ESX.GetPlayerFromIdentifier(identifier)
-
-    local result = MySQL.Sync.fetchAll('SELECT * FROM `convoy_registered_list` WHERE identifier = @identifier', {
-        ['@identifier'] = identifier })
-    if result[1] then
-        MySQL.Sync.execute('UPDATE `convoy_registered_list` SET `convoy_id`=@idConvoi WHERE identifier = @identifier', {
-            ['@identifier'] = identifier,
-            ['@idConvoi'] = idConvoi
-        }, function(rowsChanged)
-            if rowsChanged == 0 then
-                print(xPlayer.source)
-                print('Registration for convoy ' .. idConvoi .. ' failed.')
-            else
-                print(xPlayer.source)
-                print('Registered to convoy ' .. idConvoi .. '.')
-            end
-        end)
-    else
-        MySQL.Async.execute('INSERT INTO `convoy_registered_list`(`identifier`, `is_trailer_stored`, `convoy_id`) VALUES (@identifier, false, @idConvoi)', {
-            ['@identifier'] = identifier,
-            ['@idConvoi'] = idConvoi
-        }, function(_)
-            print(xPlayer.source)
-            print('Registered to convoy ' .. idConvoi .. '.')
-        end)
+    local _source = source
+    local xPlayer = ESX.GetPlayerFromId(_source)
+    if xPlayer and xPlayer.job.name == 'companyjob' and IsPlayerNearTarget(_source, target, 10.0) then
+        TriggerClientEvent('esx:showNotification', target, msg)
     end
 end)
 
+-- Menu convois (Secured against SQL & Money/Item Exploits)
+RegisterServerEvent('companyjob:registerConvoi')
+AddEventHandler('companyjob:registerConvoi', function(idConvoi)
+    local _source = source
+    local xPlayer = ESX.GetPlayerFromId(_source)
+
+    if not xPlayer or xPlayer.job.name ~= 'companyjob' then
+        return
+    end
+
+    local identifier = xPlayer.identifier
+    idConvoi = tonumber(idConvoi) or 0
+
+    local result = MySQL.Sync.fetchAll('SELECT * FROM `convoy_registered_list` WHERE identifier = @identifier', {
+        ['@identifier'] = identifier
+    })
+    if result[1] then
+        MySQL.Async.execute('UPDATE `convoy_registered_list` SET `convoy_id`=@idConvoi, `is_paid`=false WHERE identifier = @identifier', {
+            ['@identifier'] = identifier,
+            ['@idConvoi'] = idConvoi
+        })
+    else
+        MySQL.Async.execute('INSERT INTO `convoy_registered_list`(`identifier`, `is_trailer_stored`, `convoy_id`, `is_paid`) VALUES (@identifier, false, @idConvoi, false)', {
+            ['@identifier'] = identifier,
+            ['@idConvoi'] = idConvoi
+        })
+    end
+end)
 
 RegisterServerEvent('companyjob:unregisterConvoi')
-AddEventHandler('companyjob:unregisterConvoi', function(identifier, idConvoi)
-    local xPlayer = ESX.GetPlayerFromIdentifier(identifier)
+AddEventHandler('companyjob:unregisterConvoi', function(idConvoi)
+    local _source = source
+    local xPlayer = ESX.GetPlayerFromId(_source)
 
+    if not xPlayer or xPlayer.job.name ~= 'companyjob' then
+        return
+    end
+
+    local identifier = xPlayer.identifier
     local result = MySQL.Sync.fetchAll('SELECT * FROM `convoy_registered_list` WHERE identifier = @identifier AND convoy_id = @idConvoi', {
         ['@identifier'] = identifier,
         ['@idConvoi'] = idConvoi
     })
     if result[1] then
-        MySQL.Sync.execute('UPDATE `convoy_registered_list` SET `convoy_id`=@idConvoi WHERE identifier = @identifier', {
-            ['@identifier'] = identifier,
-            ['@idConvoi'] = 0
-        }, function(rowsChanged)
-            if rowsChanged == 0 then
-                print(xPlayer.source)
-                print('Unregistration from convoy ' .. idConvoi .. ' failed.')
-            else
-                print(xPlayer.source)
-                print('Unregistered from convoy ' .. idConvoi .. '.')
-            end
-        end)
+        MySQL.Async.execute('UPDATE `convoy_registered_list` SET `convoy_id`=0 WHERE identifier = @identifier', {
+            ['@identifier'] = identifier
+        })
     else
-        TriggerClientEvent('esx:showNotification', xPlayer.source, 'You are not registered to convoy ' .. idConvoi .. '.')
+        TriggerClientEvent('esx:showNotification', xPlayer.source, 'You are not registered to convoy ' .. tostring(idConvoi) .. '.')
     end
 end)
 
-
 RegisterServerEvent('companyjob:storeTrailer')
-AddEventHandler('companyjob:storeTrailer', function(identifier)
-    MySQL.Sync.execute('UPDATE `convoy_registered_list` SET `is_trailer_stored`=true WHERE identifier = @identifier', {
-        ['@identifier'] = identifier,
-    }, function(rowsChanged)
-        if rowsChanged == 0 then
-            print('Problem occurred while storing the trailer.')
-        end
-    end)
+AddEventHandler('companyjob:storeTrailer', function()
+    local _source = source
+    local xPlayer = ESX.GetPlayerFromId(_source)
 
-    TriggerEvent('esx_addoninventory:getSharedInventory', 'society_companyjob_depot', function(inventory)
-        local item
-        for i = 1, 50 do
-            item = math.random(1, #Config.listItems)
-            inventory.addItem(Config.listItems[item], math.random(1, 10))
-        end
-    end)
+    if not xPlayer or xPlayer.job.name ~= 'companyjob' then
+        print(('companyjob: %s attempted to trigger storeTrailer without job!'):format(xPlayer and xPlayer.identifier or _source))
+        return
+    end
+
+    local identifier = xPlayer.identifier
+
+    -- Anti-Exploit: Verify player is actually in an active convoy and hasn't stored the trailer yet
+    local check = MySQL.Sync.fetchAll('SELECT convoy_id, is_trailer_stored FROM `convoy_registered_list` WHERE identifier = @identifier', {
+        ['@identifier'] = identifier
+    })
+
+    if check[1] and check[1].convoy_id > 0 and (check[1].is_trailer_stored == 0 or check[1].is_trailer_stored == false) then
+        MySQL.Sync.execute('UPDATE `convoy_registered_list` SET `is_trailer_stored`=true WHERE identifier = @identifier', {
+            ['@identifier'] = identifier,
+        })
+
+        TriggerEvent('esx_addoninventory:getSharedInventory', 'society_companyjob_depot', function(inventory)
+            if inventory then
+                local item
+                for i = 1, 50 do
+                    item = math.random(1, #Config.listItems)
+                    inventory.addItem(Config.listItems[item], math.random(1, 10))
+                end
+            end
+        end)
+    else
+        print(('companyjob: %s attempted to exploit storeTrailer (already stored or not in convoy)!'):format(identifier))
+    end
 end)
-
 
 RegisterServerEvent('companyjob:popTrailer')
-AddEventHandler('companyjob:popTrailer', function(identifier)
-    MySQL.Sync.execute('UPDATE `convoy_registered_list` SET `is_trailer_stored`=false WHERE identifier = @identifier', {
-        ['@identifier'] = identifier,
-    }, function(rowsChanged)
-        if rowsChanged == 0 then
-            print('Problem getting the trailer out.')
-        end
-    end)
+AddEventHandler('companyjob:popTrailer', function()
+    local _source = source
+    local xPlayer = ESX.GetPlayerFromId(_source)
+
+    if not xPlayer or xPlayer.job.name ~= 'companyjob' then
+        return
+    end
+
+    MySQL.Async.execute('UPDATE `convoy_registered_list` SET `is_trailer_stored`=false WHERE identifier = @identifier', {
+        ['@identifier'] = xPlayer.identifier,
+    })
 end)
 
-
 RegisterServerEvent('companyjob:getPaidJob')
-AddEventHandler('companyjob:getPaidJob', function(identifier, convoi)
-    local quantity = MySQL.Sync.fetchScalar('SELECT count(`is_trailer_stored`) FROM `convoy_registered_list` WHERE `convoy_id` = @idConvoi AND `is_trailer_stored` = true', {
+AddEventHandler('companyjob:getPaidJob', function(convoi)
+    local _source = source
+    local xPlayer = ESX.GetPlayerFromId(_source)
+
+    if not xPlayer or xPlayer.job.name ~= 'companyjob' then
+        print(('companyjob: %s attempted to get paid without job!'):format(xPlayer and xPlayer.identifier or _source))
+        return
+    end
+
+    local identifier = xPlayer.identifier
+
+    -- Anti-Exploit: Check if player actually stored the trailer and hasn't been paid yet
+    local check = MySQL.Sync.fetchAll('SELECT is_trailer_stored, is_paid, convoy_id FROM `convoy_registered_list` WHERE identifier = @identifier AND convoy_id = @idConvoi', {
+        ['@identifier'] = identifier,
         ['@idConvoi'] = convoi
     })
 
-    local xPlayer = ESX.GetPlayerFromIdentifier(identifier)
-    xPlayer.addAccountMoney('bank', Config.Pay[quantity].EarnPlayer)
-    TriggerEvent('esx_addonaccount:getSharedAccount', 'society_companyjob', function(tsAccount)
+    if check[1] and (check[1].is_trailer_stored == 1 or check[1].is_trailer_stored == true) and (check[1].is_paid == 0 or check[1].is_paid == false) then
+        local quantity = MySQL.Sync.fetchScalar('SELECT count(`is_trailer_stored`) FROM `convoy_registered_list` WHERE `convoy_id` = @idConvoi AND `is_trailer_stored` = true', {
+            ['@idConvoi'] = convoi
+        })
 
-        if tsAccount ~= nil then
-            tsAccount.addMoney(Config.Pay[quantity].EarnSociety)
-        end
-    end)
-    MySQL.Sync.execute('UPDATE `convoy_registered_list` SET `is_paid`=true WHERE identifier = @identifier', {
-        ['@identifier'] = identifier,
-    }, function(rowsChanged)
-    end)
+        quantity = tonumber(quantity) or 1
+        if quantity < 1 then quantity = 1 end
+        if quantity > #Config.Pay then quantity = #Config.Pay end
+
+        -- Mark as paid BEFORE giving money to prevent race-condition spam
+        MySQL.Sync.execute('UPDATE `convoy_registered_list` SET `is_paid`=true WHERE identifier = @identifier', {
+            ['@identifier'] = identifier,
+        })
+
+        xPlayer.addAccountMoney('bank', Config.Pay[quantity].EarnPlayer)
+        TriggerEvent('esx_addonaccount:getSharedAccount', 'society_companyjob', function(tsAccount)
+            if tsAccount ~= nil then
+                tsAccount.addMoney(Config.Pay[quantity].EarnSociety)
+            end
+        end)
+    else
+        print(('companyjob: %s attempted to exploit getPaidJob!'):format(identifier))
+    end
 end)
-
 
 RegisterServerEvent('companyjob:checkIfConvoyEnded')
 AddEventHandler('companyjob:checkIfConvoyEnded', function(convoi)
+    local _source = source
+    local xPlayer = ESX.GetPlayerFromId(_source)
+    if not xPlayer or xPlayer.job.name ~= 'companyjob' then
+        return
+    end
+
     local quantityStored = MySQL.Sync.fetchScalar('SELECT count(`is_trailer_stored`) FROM `convoy_registered_list` WHERE `convoy_id` = @idConvoi AND `is_trailer_stored` = true', {
         ['@idConvoi'] = convoi
     })
@@ -478,14 +599,20 @@ AddEventHandler('companyjob:checkIfConvoyEnded', function(convoi)
         ['@idConvoi'] = convoi
     })
 
-    if quantityPaid == quantityStored then
-        MySQL.Sync.execute('UPDATE `convoy_registered_list` SET `is_paid`=false, `is_trailer_stored`=false, `convoy_id`=0 WHERE convoy_id = @convoiId', { ['@convoiId'] = convoi }, function(rowsChanged)
-        end)
+    if quantityPaid == quantityStored and quantityStored > 0 then
+        MySQL.Async.execute('UPDATE `convoy_registered_list` SET `is_paid`=false, `is_trailer_stored`=false, `convoy_id`=0 WHERE convoy_id = @convoiId', {
+            ['@convoiId'] = convoi
+        })
     end
 end)
 
-
 ESX.RegisterServerCallback('companyjob:getConvois', function(source, cb)
+    local xPlayer = ESX.GetPlayerFromId(source)
+    if not xPlayer or xPlayer.job.name ~= 'companyjob' then
+        cb({})
+        return
+    end
+
     local convois = {}
     local result = MySQL.Sync.fetchAll('SELECT * FROM `convoy_list`')
     if result[1] and #result > 0 then

@@ -1,6 +1,6 @@
 -- Add Job
 INSERT INTO `jobs` (`name`, `label`) VALUES
-('companyjob', 'The Gold Leaf');
+('companyjob', 'Company Job');
 
 INSERT INTO `job_grades` (`job_name`, `grade`, `name`, `label`, `salary`, `skin_male`, `skin_female`) VALUES
 ('companyjob', 0, 'recruit', 'Recruit', 200, '{}', '{}'),
@@ -12,7 +12,7 @@ INSERT INTO `addon_account` (`name`, `label`, `shared`) VALUES
 ('society_companyjob', 'Company Job', 1);
 
 INSERT INTO `addon_inventory` (`name`, `label`, `shared`) VALUES
-('society_companyjob', 'TCompany Job', 1),
+('society_companyjob', 'Company Job', 1),
 ('society_companyjob_depot', 'Company Depot', 1);
 
 INSERT INTO `datastore` (`name`, `label`, `shared`) VALUES

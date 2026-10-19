@@ -41,8 +41,10 @@ end)
 RegisterNetEvent('esx:playerLoaded')
 AddEventHandler('esx:playerLoaded', function(xPlayer)
     PlayerData = xPlayer
-    TriggerServerEvent('companyjob:popTrailer', PlayerData.identifier)
-    TriggerServerEvent('companyjob:registerConvoi', PlayerData.identifier, 0)
+    if PlayerData.job and PlayerData.job.name == 'companyjob' then
+        TriggerServerEvent('companyjob:popTrailer')
+        TriggerServerEvent('companyjob:registerConvoi', 0)
+    end
     ESX.TriggerServerCallback('esx_service:isInService', function(isInService)
         if isInService then
             playerInService = false
@@ -56,12 +58,13 @@ end)
 RegisterNetEvent('esx:setJob')
 AddEventHandler('esx:setJob', function(job)
     PlayerData.job = job
-    TriggerServerEvent('companyjob:popTrailer', PlayerData.identifier)
-    TriggerServerEvent('companyjob:registerConvoi', PlayerData.identifier, 0)
+    if PlayerData.job and PlayerData.job.name == 'companyjob' then
+        TriggerServerEvent('companyjob:popTrailer')
+        TriggerServerEvent('companyjob:registerConvoi', 0)
+    end
     ESX.TriggerServerCallback('esx_service:isInService', function(isInService)
         if isInService then
             playerInService = false
-
             TriggerServerEvent('esx_service:disableService', 'companyjob', PlayerData.identifier)
         end
     end, 'companyjob', PlayerData.identifier)
@@ -105,7 +108,6 @@ function OpenCloakroomMenu()
                     if Config.MaxInService ~= -1 then
                         ESX.TriggerServerCallback('esx_service:isInService', function(isInService)
                             if isInService then
-
                                 playerInService = false
 
                                 local notification = {
@@ -116,7 +118,7 @@ function OpenCloakroomMenu()
                                 }
                                 TriggerServerEvent('esx_service:notifyAllInService', notification, 'companyjob')
                                 TriggerServerEvent('esx_service:disableService', 'companyjob', PlayerData.identifier)
-                                TriggerServerEvent('companyjob:registerConvoi', PlayerData.identifier, 0)
+                                TriggerServerEvent('companyjob:registerConvoi', 0)
                                 onJob = false
                                 ESX.ShowNotification(_U('service_out'))
                             end
@@ -128,10 +130,10 @@ function OpenCloakroomMenu()
 
                     ESX.TriggerServerCallback('esx_service:isInService', function(isInService)
                         if not isInService then
-
                             ESX.TriggerServerCallback('esx_service:enableService', function(canTakeService, maxInService, inServiceCount)
                                 if not canTakeService then
                                     ESX.ShowNotification(_U('service_max', inServiceCount, maxInService))
+                                    serviceOk = false
                                 else
                                     serviceOk = true
                                     playerInService = true
@@ -153,7 +155,6 @@ function OpenCloakroomMenu()
                     while type(serviceOk) == 'string' do
                         Citizen.Wait(5)
                     end
-                    -- if we couldn't enter service don't let the player get changed
                     if not serviceOk then
                         return
                     end
@@ -279,7 +280,6 @@ function OpenVehicleSpawnerMenu(type)
     end, function(data, menu)
         menu.close()
     end)
-
 end
 
 function StoreNearbyVehicle(playerCoords)
@@ -287,8 +287,6 @@ function StoreNearbyVehicle(playerCoords)
 
     if #vehicles > 0 then
         for k, v in ipairs(vehicles) do
-
-            -- Make sure the vehicle we're saving is empty, or else it wont be deleted
             if GetVehicleNumberOfPassengers(v) == 0 and IsVehicleSeatFree(v, -1) then
                 table.insert(vehiclePlates, {
                     vehicle = v,
@@ -315,12 +313,10 @@ function StoreNearbyVehicle(playerCoords)
                 end
             end)
 
-            -- Workaround for vehicle not deleting when other players are near it.
             while DoesEntityExist(vehicleId.vehicle) do
                 Citizen.Wait(500)
                 attempts = attempts + 1
 
-                -- Give up
                 if attempts > 30 then
                     break
                 end
@@ -509,12 +505,11 @@ function OpenBossActionsMenu()
     end)
 end
 
--- DisableControlAction
+-- DisableControlAction (Optimized)
 Citizen.CreateThread(function()
     while true do
-        Citizen.Wait(0)
-
         if isInShopMenu then
+            Citizen.Wait(0)
             DisableControlAction(0, 75, true)  -- Disable exit vehicle
             DisableControlAction(27, 75, true) -- Disable exit vehicle
         else
@@ -523,26 +518,37 @@ Citizen.CreateThread(function()
     end
 end)
 
--- Enter / Exit marker events
+-- Enter / Exit marker events (Optimized)
 Citizen.CreateThread(function()
     while true do
-        Citizen.Wait(10)
+        local sleep = 500
         if PlayerData.job ~= nil and PlayerData.job.name == 'companyjob' then
             local coords = GetEntityCoords(PlayerPedId())
             local isInMarker = false
             local currentZone
+
             for k, v in pairs(Config.Cloakrooms) do
-                if (GetDistanceBetweenCoords(coords, v.Pos.x, v.Pos.y, v.Pos.z, true) < v.Size.x) then
-                    isInMarker = true
-                    currentZone = k
+                local dist = #(coords - vector3(v.Pos.x, v.Pos.y, v.Pos.z))
+                if dist < Config.DrawDistance then
+                    sleep = 100
+                    if dist < v.Size.x then
+                        isInMarker = true
+                        currentZone = k
+                    end
                 end
             end
+
             for k, v in pairs(Config.Zones) do
-                if (GetDistanceBetweenCoords(coords, v.Pos.x, v.Pos.y, v.Pos.z, true) < v.Size.x) then
-                    isInMarker = true
-                    currentZone = k
+                local dist = #(coords - vector3(v.Pos.x, v.Pos.y, v.Pos.z))
+                if dist < Config.DrawDistance then
+                    sleep = 100
+                    if dist < v.Size.x then
+                        isInMarker = true
+                        currentZone = k
+                    end
                 end
             end
+
             if (isInMarker and not HasAlreadyEnteredMarker) or (isInMarker and LastZone ~= currentZone) then
                 HasAlreadyEnteredMarker = true
                 LastZone = currentZone
@@ -550,9 +556,10 @@ Citizen.CreateThread(function()
             end
             if not isInMarker and HasAlreadyEnteredMarker then
                 HasAlreadyEnteredMarker = false
-                TriggerEvent('companyjob:hasExitedMarker', currentZone)
+                TriggerEvent('companyjob:hasExitedMarker', LastZone)
             end
         end
+        Citizen.Wait(sleep)
     end
 end)
 
@@ -605,14 +612,7 @@ function OpenMobilecompanyjobActionsMenu()
         { label = _U('billing'), value = 'billing' },
     }
 
-    if PlayerData.job.grade_name == 'underboss' then
-        table.insert(elements, { label = 'Handcuff', value = 'handcuff' })
-        table.insert(elements, { label = 'Blindfold', value = 'bander' })
-        table.insert(elements, { label = 'Escort', value = 'drag' })
-        table.insert(elements, { label = 'Put in vehicle', value = 'put_in_vehicle' })
-        table.insert(elements, { label = 'Take out of vehicle', value = 'out_the_vehicle' })
-        table.insert(elements, { label = 'Search', value = 'body_search' })
-    elseif PlayerData.job.grade_name == 'boss' then
+    if PlayerData.job.grade_name == 'underboss' or PlayerData.job.grade_name == 'boss' then
         table.insert(elements, { label = 'Handcuff', value = 'handcuff' })
         table.insert(elements, { label = 'Blindfold', value = 'bander' })
         table.insert(elements, { label = 'Escort', value = 'drag' })
@@ -624,7 +624,7 @@ function OpenMobilecompanyjobActionsMenu()
     ESX.UI.Menu.CloseAll()
     ESX.UI.Menu.Open('default', GetCurrentResourceName(), 'mobile_custom_actions', {
         css = 'unknownstory',
-        title = _U('custom'),
+        title = _U('companyjob'),
         align = 'top-left',
         elements = elements
     }, function(data, _)
@@ -665,6 +665,8 @@ function OpenMobilecompanyjobActionsMenu()
             elseif action == 'bander' then
                 TriggerEvent('esx_worek:naloz')
             end
+        else
+            ESX.ShowNotification(_U('no_players_nearby'))
         end
     end, function(_, menu)
         menu.close()
@@ -672,7 +674,6 @@ function OpenMobilecompanyjobActionsMenu()
 end
 
 function OpenBodySearchMenu(player)
-
     ESX.TriggerServerCallback('companyjob:getOtherPlayerData', function(data)
         local elements = {}
 
@@ -715,7 +716,6 @@ function OpenBodySearchMenu(player)
                   elements = elements,
                 },
                 function(data1, _)
-
                     local itemType = data1.current.itemType
                     local itemName = data1.current.value
                     local amount = data1.current.amount
@@ -724,14 +724,11 @@ function OpenBodySearchMenu(player)
                         TriggerServerEvent('companyjob:confiscatePlayerItem', GetPlayerServerId(player), itemType, itemName, amount)
                         OpenBodySearchMenu(player)
                     end
-
                 end, function(_, menu)
                     menu.close()
                 end)
     end, GetPlayerServerId(player))
-
 end
-
 
 -- Display Blips
 Citizen.CreateThread(function()
@@ -744,92 +741,94 @@ Citizen.CreateThread(function()
     SetBlipAsShortRange(blip, true)
 
     BeginTextCommandSetBlipName("STRING")
-    AddTextComponentString('companyjob')
+    AddTextComponentString(_U('blip_name'))
     EndTextCommandSetBlipName(blip)
 end)
 
-
--- Draw Marker
+-- Draw Marker (Optimized)
 Citizen.CreateThread(function()
     while true do
-        Citizen.Wait(1)
+        local sleep = 500
         if PlayerData.job ~= nil and PlayerData.job.name == 'companyjob' then
             local coords = GetEntityCoords(PlayerPedId())
             for _, v in pairs(Config.Cloakrooms) do
-                if (v.Type ~= -1 and GetDistanceBetweenCoords(coords, v.Pos.x, v.Pos.y, v.Pos.z, true) < Config.DrawDistance) then
+                if (v.Type ~= -1 and #(coords - vector3(v.Pos.x, v.Pos.y, v.Pos.z)) < Config.DrawDistance) then
+                    sleep = 0
                     DrawMarker(v.Type, v.Pos.x, v.Pos.y, v.Pos.z, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, v.Size.x, v.Size.y, v.Size.z, Config.MarkerColor.r, Config.MarkerColor.g, Config.MarkerColor.b, 100, false, true, 2, true, nil, nil, false)
                 end
             end
             if playerInService == true then
                 for k, v in pairs(Config.Zones) do
-                    if (v.Type ~= -1 and GetDistanceBetweenCoords(coords, v.Pos.x, v.Pos.y, v.Pos.z, true) < Config.DrawDistance) then
+                    if (v.Type ~= -1 and #(coords - vector3(v.Pos.x, v.Pos.y, v.Pos.z)) < Config.DrawDistance) then
+                        sleep = 0
                         DrawMarker(v.Type, v.Pos.x, v.Pos.y, v.Pos.z, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, v.Size.x, v.Size.y, v.Size.z, Config.MarkerColor.r, Config.MarkerColor.g, Config.MarkerColor.b, 100, false, true, 2, true, nil, nil, false)
                     end
                 end
             end
-        else
-            Citizen.Wait(500)
         end
+        Citizen.Wait(sleep)
     end
 end)
 
-
--- Key Controls
+-- Key Controls (Optimized)
 Citizen.CreateThread(function()
     while true do
-        Citizen.Wait(1)
-        if IsControlJustReleased(0, Keys['F6']) and PlayerData.job ~= nil and PlayerData.job.name == 'companyjob' then
-            OpenMobilecompanyjobActionsMenu()
-        end
-        if CurrentAction == 'menu_cloakroom' and (not playerInService or playerInService) then
-            ESX.ShowHelpNotification(CurrentActionMsg)
-            if IsControlJustReleased(0, Keys['E']) then
-                OpenCloakroomMenu()
+        local sleep = 500
+        if PlayerData.job ~= nil and PlayerData.job.name == 'companyjob' then
+            sleep = 0
+            if IsControlJustReleased(0, Keys['F6']) then
+                OpenMobilecompanyjobActionsMenu()
             end
-        end
-        if playerInService then
-            if CurrentAction == 'garage' then
+            if CurrentAction == 'menu_cloakroom' then
                 ESX.ShowHelpNotification(CurrentActionMsg)
                 if IsControlJustReleased(0, Keys['E']) then
-                    OpenVehicleSpawnerMenu('car')
-                end
-            elseif CurrentAction == 'storage_depot' and PlayerData.job.grade_name ~= 'recruit' then
-                ESX.ShowHelpNotification(CurrentActionMsg)
-                if IsControlJustReleased(0, Keys['E']) then
-                    OpenRoomMenu('companyjob Depot', 'society_companyjob_depot')
-                end
-            elseif CurrentAction == 'boss_actions_menu' then
-                ESX.ShowHelpNotification(CurrentActionMsg)
-                if IsControlJustReleased(0, Keys['E']) then
-                    OpenBossActionsMenu()
-                end
-            elseif CurrentAction == 'convreg_menu' then
-                ESX.ShowHelpNotification(CurrentActionMsg)
-                if IsControlJustReleased(0, Keys['E']) then
-                    OpenConvoisMenu()
-                end
-            elseif CurrentAction == 'pop_trailer' and onJob then
-                ESX.ShowHelpNotification(CurrentActionMsg)
-                if IsControlJustReleased(0, Keys['E']) then
-                    PopTrailer()
-                end
-            elseif CurrentAction == 'store_trailer' and onJob then
-                ESX.ShowHelpNotification(CurrentActionMsg)
-                if IsControlJustReleased(0, Keys['E']) then
-                    StoreTrailer()
-                end
-            elseif CurrentAction == 'get_paid' and jobDone then
-                ESX.ShowHelpNotification(CurrentActionMsg)
-                if IsControlJustReleased(0, Keys['E']) then
-                    GetPaid()
+                    OpenCloakroomMenu()
                 end
             end
+            if playerInService then
+                if CurrentAction == 'garage' then
+                    ESX.ShowHelpNotification(CurrentActionMsg)
+                    if IsControlJustReleased(0, Keys['E']) then
+                        OpenVehicleSpawnerMenu('car')
+                    end
+                elseif CurrentAction == 'storage_depot' and PlayerData.job.grade_name ~= 'recruit' then
+                    ESX.ShowHelpNotification(CurrentActionMsg)
+                    if IsControlJustReleased(0, Keys['E']) then
+                        OpenRoomMenu('companyjob Depot', 'society_companyjob_depot')
+                    end
+                elseif CurrentAction == 'boss_actions_menu' then
+                    ESX.ShowHelpNotification(CurrentActionMsg)
+                    if IsControlJustReleased(0, Keys['E']) then
+                        OpenBossActionsMenu()
+                    end
+                elseif CurrentAction == 'convreg_menu' then
+                    ESX.ShowHelpNotification(CurrentActionMsg)
+                    if IsControlJustReleased(0, Keys['E']) then
+                        OpenConvoisMenu()
+                    end
+                elseif CurrentAction == 'pop_trailer' and onJob then
+                    ESX.ShowHelpNotification(CurrentActionMsg)
+                    if IsControlJustReleased(0, Keys['E']) then
+                        PopTrailer()
+                    end
+                elseif CurrentAction == 'store_trailer' and onJob then
+                    ESX.ShowHelpNotification(CurrentActionMsg)
+                    if IsControlJustReleased(0, Keys['E']) then
+                        StoreTrailer()
+                    end
+                elseif CurrentAction == 'get_paid' and jobDone then
+                    ESX.ShowHelpNotification(CurrentActionMsg)
+                    if IsControlJustReleased(0, Keys['E']) then
+                        GetPaid()
+                    end
+                end
+            end
         end
+        Citizen.Wait(sleep)
     end
 end)
 
-
--- Coffre
+-- Vault
 function OpenRoomMenu(property, storing)
     local elements = {}
 
@@ -857,7 +856,6 @@ end
 
 function OpenGetStocksMenu(storing)
     ESX.TriggerServerCallback('companyjob:getStockItems', function(inventory)
-
         local elements = {}
 
         for i = 1, #inventory.items, 1 do
@@ -919,13 +917,10 @@ function OpenGetStocksMenu(storing)
                 end, function(data, menu)
                     menu.close()
                 end)
-
     end, storing)
-
 end
 
 function OpenPutStocksMenu(storing)
-
     ESX.TriggerServerCallback('companyjob:getPlayerInventory', function(inventory)
         local elements = {}
 
@@ -1029,13 +1024,13 @@ function OpenConvoisMenu()
 
             if data.value == 'register' then
                 menu.close()
-                TriggerServerEvent('companyjob:registerConvoi', PlayerData.identifier, convoi)
+                TriggerServerEvent('companyjob:registerConvoi', convoi)
                 Config.Zones.PopTrailer.Type = 27
                 onJob = true
                 popedTrailer = false
             elseif data.value == 'unregister' then
                 menu.close()
-                TriggerServerEvent('companyjob:unregisterConvoi', PlayerData.identifier, convoi)
+                TriggerServerEvent('companyjob:unregisterConvoi', convoi)
                 Config.Zones.PopTrailer.Type = -1
                 onJob = false
             end
@@ -1051,7 +1046,7 @@ function PopTrailer()
             popedTrailer = true
             trailerPoped = trailer
             Config.Zones.StoreTrailer.Type = 27
-            TriggerServerEvent('companyjob:popTrailer', PlayerData.identifier)
+            TriggerServerEvent('companyjob:popTrailer')
         end)
     else
         ESX.ShowNotification('You already have a trailer out')
@@ -1066,12 +1061,12 @@ function StoreTrailer()
         jobDone = true
         Config.Zones.StoreTrailer.Type = -1
         Config.Zones.GetPaid.Type = 29
-        TriggerServerEvent('companyjob:storeTrailer', PlayerData.identifier)
+        TriggerServerEvent('companyjob:storeTrailer')
     end
 end
 
 function GetPaid()
-    TriggerServerEvent('companyjob:getPaidJob', PlayerData.identifier, convoi)
+    TriggerServerEvent('companyjob:getPaidJob', convoi)
     jobDone = false
     Config.Zones.GetPaid.Type = -1
     Citizen.Wait(1000)
@@ -1098,7 +1093,6 @@ AddEventHandler('companyjob:handcuff', function()
             FreezeEntityPosition(playerPed, false)
             DisplayRadar(false)
             if Config.EnableHandcuffTimer then
-
                 if HandcuffTimer.Active then
                     ESX.ClearTimeout(HandcuffTimer.Task)
                 end
@@ -1132,7 +1126,6 @@ AddEventHandler('companyjob:unrestrain', function()
         FreezeEntityPosition(playerPed, false)
         DisplayRadar(true)
 
-        -- end timer
         if Config.EnableHandcuffTimer and HandcuffTimer.Active then
             ESX.ClearTimeout(HandcuffTimer.Task)
         end
@@ -1153,15 +1146,13 @@ Citizen.CreateThread(function()
     local targetPed
 
     while true do
-        Citizen.Wait(1)
-
         if IsHandcuffed then
+            Citizen.Wait(0)
             playerPed = PlayerPedId()
 
             if DragStatus.IsDragged then
                 targetPed = GetPlayerPed(GetPlayerFromServerId(DragStatus.CopId))
 
-                -- undrag if target is in an vehicle
                 if not IsPedSittingInAnyVehicle(targetPed) then
                     AttachEntityToEntity(playerPed, targetPed, 11816, 0.54, 0.54, 0.0, 0.0, 0.0, 0.0, false, false, false, false, 2, true)
                 else
@@ -1173,7 +1164,6 @@ Citizen.CreateThread(function()
                     DragStatus.IsDragged = false
                     DetachEntity(playerPed, true, false)
                 end
-
             else
                 DetachEntity(playerPed, true, false)
             end
@@ -1226,14 +1216,13 @@ AddEventHandler('companyjob:OutVehicle', function()
     TaskLeaveVehicle(playerPed, vehicle, 16)
 end)
 
-
--- Handcuff
+-- Handcuff (Optimized)
 Citizen.CreateThread(function()
     while true do
-        Citizen.Wait(1)
-        local playerPed = PlayerPedId()
-
         if IsHandcuffed then
+            Citizen.Wait(0)
+            local playerPed = PlayerPedId()
+
             DisableControlAction(0, 1, true) -- Disable pan
             DisableControlAction(0, 2, true) -- Disable tilt
             DisableControlAction(0, 24, true) -- Attack
@@ -1242,9 +1231,8 @@ Citizen.CreateThread(function()
             DisableControlAction(0, 263, true) -- Melee Attack 1
             DisableControlAction(0, Keys['W'], false) -- W
             DisableControlAction(0, Keys['A'], false) -- A
-            DisableControlAction(0, 31, false) -- S (fault in Keys table!)
-            DisableControlAction(0, 30, false) -- D (fault in Keys table!)
-
+            DisableControlAction(0, 31, false) -- S
+            DisableControlAction(0, 30, false) -- D
 
             DisableControlAction(0, Keys['R'], true) -- Reload
             DisableControlAction(0, Keys['SPACE'], true) -- Jump

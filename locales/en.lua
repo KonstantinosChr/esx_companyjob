@@ -1,12 +1,15 @@
 Locales['en'] = {
-    ['companyjob'] = 'Company Job', // Company Job Name // 
-	['alert_companyjob'] = 'Company Alert',
+    ['companyjob'] = 'Company Job', -- Company Job Name
+    ['alert_companyjob'] = 'Company Alert',
     ['by_default'] = 'By default',
     ['citizen_wear'] = 'Go off duty',
     ['cloakroom'] = 'Cloakroom',
     ['job_wear'] = 'Go on duty | uniform',
+    ['no_outfit'] = 'No outfit available',
     ['open_cloackroom'] = 'Press ~INPUT_CONTEXT~ to access the duty menu.',
     ['convreg_menu'] = 'Press ~INPUT_CONTEXT~ to access the convoy list.',
+    ['pop_trailer'] = 'Press ~INPUT_CONTEXT~ to interact with the trailer / payment.',
+    ['unregister'] = 'Leave',
     ['garage'] = 'Press ~INPUT_CONTEXT~ to access the garage.',
     ['installed'] = 'Installed',
     ['already_own'] = 'You already own: ~b~%s~s~',
@@ -24,13 +27,15 @@ Locales['en'] = {
     ['withdraw_stock'] = 'Withdraw Stock',
     ['boss_actions'] = 'Boss Actions',
 
-    --Vault
+    -- Vault
     ['remove_object'] = 'Take object from the vault',
     ['deposit_object'] = 'Deposit object in the vault',
     ['inventory'] = 'Inventory',
-    ['companyjob_stock'] = 'companyjob Inventory',
+    ['companyjob_stock'] = 'Company Inventory',
     ['quantity'] = 'Quantity',
     ['quantity_invalid'] = 'Invalid quantity entered',
+    ['have_withdrawn'] = 'You have withdrawn ~y~%sx~s~ ~b~%s~s~',
+    ['have_deposited'] = 'You have deposited ~y~%sx~s~ ~b~%s~s~',
 
     -- F6 menu
     ['billing']                   = 'Billing',
@@ -47,7 +52,7 @@ Locales['en'] = {
     ['service_out'] = '~r~You have ended your shift',
     ['service_out_announce'] = 'Employee: %s~s~ has gone off duty',
 
-    --Vehicle
+    -- Vehicle
     ['vehicle_menu'] = 'Vehicle',
     ['vehicle_blocked'] = 'Please remove the vehicle in front of the garage',
     ['garage_prompt'] = 'Press ~INPUT_CONTEXT~ to access ~y~Vehicle Actions~s~',
@@ -76,7 +81,7 @@ Locales['en'] = {
     ['confirm_no'] = 'No',
     ['confirm_yes'] = 'Yes',
 
-    --Action menu Mafia
+    -- Action menu Mafia
     ['citizen_interaction'] = 'Citizen Interaction',
     ['vehicle_interaction'] = 'Vehicle Interaction',
     ['object_spawner'] = 'Object Spawner',
@@ -93,7 +98,6 @@ Locales['en'] = {
     ['license_revoke'] = 'Revoke license',
     ['license_revoked'] = 'Your ~b~%s~s~ has been ~y~revoked~s~!',
     ['licence_you_revoked'] = 'You just revoked the %s~s~ belonging to ~y~%s~s~',
-    ['no_players_nearby'] = 'No citizens nearby',
     ['being_searched'] = 'You are being searched by an officer',
     
     -- ID Card Menu
