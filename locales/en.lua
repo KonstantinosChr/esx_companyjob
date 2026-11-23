@@ -8,7 +8,7 @@ Locales['en'] = {
     ['no_outfit'] = 'No outfit available',
     ['open_cloackroom'] = 'Press ~INPUT_CONTEXT~ to access the duty menu.',
     ['convreg_menu'] = 'Press ~INPUT_CONTEXT~ to access the convoy list.',
-    ['pop_trailer'] = 'Press ~INPUT_CONTEXT~ to interact with the trailer / payment.',
+    ['pop_trailer'] = 'Press ~INPUT_CONTEXT~ to pick up the trailer.',
     ['unregister'] = 'Leave',
     ['garage'] = 'Press ~INPUT_CONTEXT~ to access the garage.',
     ['installed'] = 'Installed',
@@ -130,5 +130,48 @@ Locales['en'] = {
     ['minor_offense'] = 'Minor Offense',
     ['average_offense'] = 'Average Offense',
     ['major_offense'] = 'Major Offense',
-    ['fine_total'] = 'Fine: %s'
+    ['fine_total'] = 'Fine: %s',
+
+    -- Duty / uniforms
+    ['duty_wear'] = 'Go on duty | %s',
+    ['recruit_wear'] = 'Recruit',
+    ['transporter_wear'] = 'Transporter',
+    ['underboss_wear'] = 'Underboss',
+    ['boss_wear'] = 'Boss',
+
+    -- Zone prompts
+    ['boss_prompt'] = 'Press ~INPUT_CONTEXT~ to open company management.',
+    ['store_trailer_prompt'] = 'Press ~INPUT_CONTEXT~ to deliver the trailer.',
+    ['get_paid_prompt'] = 'Press ~INPUT_CONTEXT~ to collect your payment.',
+    ['depot_prompt'] = 'Press ~INPUT_CONTEXT~ to access the depot.',
+    ['depot_title'] = 'Company Depot',
+    ['keymap_actions'] = 'Company Job: actions menu',
+
+    -- Misc
+    ['shop_empty'] = 'No vehicles are available for your grade',
+    ['cannot_carry'] = 'You cannot carry that much',
+    ['search_rejected'] = 'The person must be handcuffed and next to you',
+
+    -- Convoys / deliveries
+    ['convoy_head_id'] = 'Convoy',
+    ['convoy_head_count'] = 'Registered',
+    ['convoy_head_action'] = 'Action',
+    ['convoy_join'] = 'Join',
+    ['convoy_leave'] = 'Leave',
+    ['convoy_joined'] = 'You joined convoy ~b~%s~s~. Pick up the trailer at Paleto Bay.',
+    ['convoy_left'] = 'You left the convoy',
+    ['convoy_join_rejected'] = 'Convoy registration rejected',
+    ['convoy_leave_rejected'] = 'Could not leave the convoy, try again',
+    ['convoy_full'] = 'This convoy is full',
+    ['convoy_unpaid'] = 'Collect the payment for your last delivery first',
+    ['convoy_busy'] = 'Finish or cancel your current delivery first (F6)',
+    ['cancel_delivery'] = 'Cancel delivery',
+    ['delivery_cancelled'] = 'Delivery cancelled',
+    ['cancel_rejected'] = 'The delivery could not be cancelled right now',
+    ['trailer_rejected'] = 'Trailer request rejected. Check your registration and pickup location.',
+    ['trailer_issued'] = 'Trailer ready. Deliver it to the Los Santos depot.',
+    ['delivery_rejected'] = 'Delivery rejected. Bring your trailer to the depot; minimum trip time is %s seconds.',
+    ['delivery_done'] = 'Trailer delivered. Collect your payment.',
+    ['paid'] = 'You were paid ~g~$%s~s~',
+    ['pay_rejected'] = 'There is no payment to collect'
 }

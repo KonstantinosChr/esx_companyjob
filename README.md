@@ -19,13 +19,13 @@ An ESX company resource for FiveM with truck deliveries, shared convoys, company
 
 ## Requirements and compatibility
 
-This resource uses **legacy ESX APIs**, including `esx:getSharedObject`. Servers that removed this event need an initialization migration.
+The shared object is loaded through `exports.es_extended:getSharedObject()`, with a fallback to the legacy `esx:getSharedObject` event for older ESX versions.
 
 | Dependency | Purpose |
 | --- | --- |
 | FiveM with OneSync/state awareness | Server positions, entities, routing buckets and trailer creation |
 | `es_extended` | Shared object, jobs/accounts, game helpers and locale APIs |
-| `mysql-async` | Explicit manifest library import and database API |
+| `oxmysql` | Database API (`@oxmysql/lib/MySQL.lua`) |
 | `esx_society` | Society registration and boss menu |
 | `esx_addonaccount` | Company account |
 | `esx_addoninventory` | Shared standard-item inventories |
@@ -38,7 +38,7 @@ This resource uses **legacy ESX APIs**, including `esx:getSharedObject`. Servers
 | Identity schema, `esx_license`, `esx_status` | Identity/license/drunk data in the default enabled search path |
 | Compatible `esx_phone` | Optional society number registration |
 
-The vehicleshop APIs and custom garage columns are installation-specific; a stock ESX server may not provide them. QBCore and replacement inventories such as `ox_inventory` do not have adapters in this package. Installing `oxmysql` alone does not satisfy the explicit `mysql-async` import; migrate and test the database layer if changing drivers.
+The vehicleshop APIs and custom garage columns are installation-specific; a stock ESX server may not provide them. QBCore and replacement inventories such as `ox_inventory` do not have adapters in this package. The resource uses the `oxmysql` API (`MySQL.query/scalar/single/update.await`) and no longer needs `mysql-async`.
 
 ## Installation
 
@@ -54,7 +54,7 @@ Example `server.cfg` order, assuming the resources are installed under these nam
 
 ```cfg
 set onesync on
-ensure mysql-async
+ensure oxmysql
 ensure es_extended
 ensure esx_menu_default
 ensure esx_menu_dialog
@@ -117,9 +117,11 @@ Identity-enabled search expects `users.identifier`, `firstname`, `lastname`, `se
 6. After an accepted delivery, visit the payment marker for a bank reward.
 7. Use the vault/depot according to your grade.
 
-Use **E** at relevant markers and **F6** for job actions. Go on duty through the cloakroom before using the action menu.
+Use **E** at relevant markers and **F6** for job actions. F6 is a FiveM key mapping (`companyjob_actions`), so players can rebind it under Settings → Key Bindings → FiveM. Go on duty through the cloakroom before using the markers.
 
-Registration and delivery are confirmed by the server. If a payment request is rejected, the client payment marker can disappear; check the player registration and payment state before manually adjusting accounts.
+If a trailer is lost or stuck, use **F6 → Cancel delivery**; requesting a trailer again at the pickup also re-issues one when the previous trailer no longer exists.
+
+Registration, delivery and payment are confirmed by the server, and the client restores its delivery state from the server after a reconnect or resource restart.
 
 ## Permissions
 
@@ -130,12 +132,13 @@ Registration and delivery are confirmed by the server. If a payment request is r
 | Depot read/deposit/withdraw | Company grades except Recruit, near StorageDepot |
 | Vehicle purchase | Boss, configured shop preview area, sufficient personal cash |
 | Vehicle storage | Company job, garage proximity, nearby networked company vehicle, no connected player inside |
-| Search/confiscation, cuff, drag, vehicle interactions | Underboss/Boss, target within 10 m in same routing bucket |
+| Cuff/uncuff | Underboss/Boss, target within 10 m in same routing bucket |
+| Search/confiscation, drag, vehicle interactions | Same as cuffing, and the target must be handcuffed (server-owned state) |
 | Account confiscation | `black_money` only |
 | Boss management | External `esx_society` authorization must be verified |
 | Billing and vehicle checkout | External resource authorization must be verified |
 
-The client normally uses a 3 m interaction radius; the server permits 10 m. Menu visibility is not authorization. Restraint/escort state is largely client-managed; a comprehensive server-owned restraint system is not included.
+The client normally uses a 3 m interaction radius; the server permits 10 m. Menu visibility is not authorization. The server owns the handcuff state: cuffs are released when the officer who applied them disconnects, and optionally after `HandcuffTimer`.
 
 ## Configuration
 
@@ -145,7 +148,7 @@ Edit `config.lua`:
 | --- | --- |
 | `DrawDistance`, `MarkerColor` | Marker render distance/colour |
 | `Locale` | `en`; only English ships |
-| `MaxInService` | Default 8; -1 skips server service activation, but client service calls remain |
+| `MaxInService` | Default 8; -1 disables `esx_service` limits (changing into a uniform puts the player on duty) |
 | `EnablePlayerManagement` | Client boss-management marker visibility |
 | `EnableESXIdentity` | Identity search query; default true |
 | `EnableLicenses` | License data in the identity-enabled path; default true |
@@ -155,6 +158,11 @@ Edit `config.lua`:
 | `AuthorizedVehicles` | Shared/per-grade models, labels and purchase prices |
 | `Trailer` | Default `trailers2`, pickup spawn position and heading |
 | `Pay` | Player/society payout tiers |
+| `EnableHandcuffTimer`, `HandcuffTimer` | Automatic cuff release (milliseconds) |
+| `HandcuffedCanWalk` | Whether a cuffed player can move on their own |
+| `MaxConvoyMembers` | Registered players per convoy (default 8) |
+| `ConvoyRegistrationTimeout` | Minutes a registration without a trailer stays valid (default 45) |
+| `MinDeliverySeconds` | Minimum trip time between pickup and delivery (default 180) |
 | `listItems` | Weighted random depot reward list; duplicate names increase selection probability |
 
 When moving pickup, change both `Zones.PopTrailer.Pos` and `Trailer.Pos`. Keep garage marker/spawn/preview coordinates consistent. Purchased vehicle JSON stores only model and validated plate; arbitrary client tuning is discarded.
@@ -181,12 +189,13 @@ Every accepted delivery makes **50 random selections**, each adding 1–10 items
 - Server memory tracks an issued trailer, player/source, convoy, start time and phase.
 - Pickup/delivery require routing bucket 0; instance-based jobs need adaptation.
 - A player cannot issue another trailer during an active run or replay an accepted delivery for extra rewards.
-- The tracked entity/model, proximity and a 180-second minimum are required. These do **not prove the full route was driven** and are not an anti-cheat.
+- The tracked entity/model, proximity and the `MinDeliverySeconds` minimum are required. These do **not prove the full route was driven** and are not an anti-cheat.
 - A conditional database update must claim exactly one row before payment.
 - Rewards depend on already delivered trailers when each player collects. Early collectors may receive a lower tier; there is no frozen roster/final payout snapshot.
-- Completion resets paid participants when counts indicate all registered members have been paid. Late joins, stale registrations and disconnected members affect the lifecycle; test group workflows.
-- Disconnect/resource stop cleans up tracked trailers. Memory sessions are not resumable. Delivered-but-unpaid runs may need administrator reconciliation after a restart.
-- An active unpaid run cannot be switched/cancelled through registration. Destroyed trailers may require reconnect/re-registration.
+- A periodic server sweep frees convoys: registrations of offline players and registrations older than `ConvoyRegistrationTimeout` without a trailer are cleared, and paid members are reset once nobody in the convoy is still active.
+- Delivered-but-unpaid deliveries are stored in the database and survive reconnects and restarts; the player can collect them later, and cannot join another convoy until they do.
+- Disconnect/resource stop deletes tracked trailers. A trailer that is out is lost on disconnect, but the registration remains so a new one can be requested.
+- An active run can be cancelled with F6 → Cancel delivery; a destroyed trailer can also be re-issued at the pickup.
 - Database claims and ESX money/items are not one crash-safe transaction. A crash, disconnect or dependency failure after a claim may lose rewards. Reconcile logs/state instead of blindly retrying credits.
 
 ## Discord audit logs
@@ -223,10 +232,10 @@ Paste only real URLs for categories you use; remove unused placeholder lines. Ke
 | Category | Successful operations recorded |
 | --- | --- |
 | `payments` | Worker bank credit with convoy/tier/amount; non-zero society credit separately |
-| `deliveries` | Convoy registration/clear, trailer issuance, delivery duration and detailed depot reward item/count batches |
+| `deliveries` | Convoy join/leave, delivery cancellation, trailer issuance, delivery duration and detailed depot reward item/count batches |
 | `storage` | Item/weapon deposit and withdrawal, storage name, count/ammo |
 | `vehicles` | Company vehicle purchase with price/model/plate; company vehicle storage |
-| `interactions` | Successful item, weapon and dirty-money confiscation with target ID |
+| `interactions` | Handcuff/uncuff and successful item, weapon and dirty-money confiscation with target ID |
 
 Example payment embed:
 
@@ -241,7 +250,7 @@ Delivered trailer count / tier: 3
 Timestamp: UTC
 ```
 
-Billing, society employee-management changes and vehicle checkout occur in external resources and are not audited by these hooks. This is a successful-operation audit, not a complete log of rejected exploit attempts, restraints or administrative activity.
+Billing, society employee-management changes and vehicle checkout occur in external resources and are not audited by these hooks. This is a successful-operation audit, not a complete log of rejected exploit attempts or administrative activity.
 
 ### Server-only options
 
@@ -268,17 +277,17 @@ References: [Discord webhooks](https://docs.discord.com/developers/resources/web
 
 | Symptom | Check |
 | --- | --- |
-| ESX is nil | Legacy shared-object event support or migrate initialization |
+| ESX is nil | `es_extended` must start before this resource |
 | Unknown SQL column | Garage/identity schema compatibility |
 | Missing storage/datastore | Both SQL storage entries and addon resource startup |
 | Trailer request rejected | Registration, pickup location, bucket 0 and existing active run |
-| Delivery rejected | Exact tracked trailer, player/trailer at depot and 180 seconds elapsed |
-| Convoy join rejected | Job, location, full convoy, request in progress or unfinished run |
+| Delivery rejected | Exact tracked trailer, player/trailer at depot and `MinDeliverySeconds` elapsed |
+| Convoy join rejected | Job, location, full convoy, unpaid delivery or a trailer that is still out |
 | Reward item errors | Every configured reward name must exist |
 | Missing plate export/garage callback | Vehicleshop adapter/API mismatch |
 | Menus do not open | ESX menu dependencies, job and client duty state |
 | No Greek locale | Add a complete locale and register it in the manifest |
-| Unpaid run after restart | Memory state is lost; reconcile DB/account state manually |
+| Search rejected | The target must be handcuffed by this resource and next to you |
 
 ## Repository layout
 

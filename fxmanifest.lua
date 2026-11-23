@@ -8,9 +8,9 @@ shared_scripts {
     'locales/en.lua',
     'config.lua'
 }
-server_scripts {'@mysql-async/lib/MySQL.lua', 'server/logs_config.lua', 'server/logs.lua', 'server/main.lua'}
+server_scripts {'@oxmysql/lib/MySQL.lua', 'server/logs_config.lua', 'server/logs.lua', 'server/main.lua'}
 client_script 'client/main.lua'
 dependencies {
-    'es_extended', 'mysql-async', 'esx_society', 'esx_addonaccount',
+    'es_extended', 'oxmysql', 'esx_society', 'esx_addonaccount',
     'esx_addoninventory', 'esx_datastore', '/onesync'
 }

@@ -7,6 +7,16 @@ Config.EnablePlayerManagement = true
 Config.EnableESXIdentity = true
 Config.EnableLicenses = true
 
+-- Restraints
+Config.EnableHandcuffTimer = false        -- automatically release cuffs after HandcuffTimer
+Config.HandcuffTimer = 10 * 60 * 1000     -- milliseconds
+Config.HandcuffedCanWalk = true           -- false: a cuffed player cannot move on their own
+
+-- Convoys / deliveries
+Config.MaxConvoyMembers = 8
+Config.ConvoyRegistrationTimeout = 45     -- minutes a registration without a trailer stays valid
+Config.MinDeliverySeconds = 180           -- minimum trip time between trailer pickup and delivery
+
 Config.Blip = {
     Pos = { x = -62.83, y = -2509.34, z = 11.34 },
 }
